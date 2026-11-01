@@ -1,0 +1,11 @@
+.venv/
+data/
+results/*.pt
+results/*.log
+*.pth
+__pycache__/
+.ipynb_checkpoints/
+.DS_Store
+milestone5/*.aux
+milestone5/*.log
+milestone5/*.out

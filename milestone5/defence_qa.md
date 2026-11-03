@@ -1,6 +1,6 @@
 # Defence Q&A: Pneumonia CXR Reproduction (Milestone 5)
 
-Short answers to the questions an examiner is most likely to ask. Numbers come from `results/baseline_metrics.json` and the notebooks. Milestone 4 numbers are in `paper.pdf`, Table III and Table IV.
+Short answers to the questions an examiner is most likely to ask. Numbers come from `results/baseline_metrics.json` and the notebooks. Milestone 4 numbers come from `results/ablation_all.json` (paper Tables III–IV).
 
 ---
 
@@ -26,7 +26,7 @@ We use torchvision's InceptionV3 weights, not the 2015 TensorFlow graph the auth
 ImageNet features come from colour photos of objects; X-rays are grayscale and the useful patterns (opacities, consolidation) are different. Yosinski et al. show the top layers are the most task-specific, and Raghu et al. show the top of the network changes the most when fine-tuning on medical images. Unfreezing only Mixed_7b and Mixed_7c at a 10× smaller learning rate lets the high-level features adapt. It also limits overfitting on about 5k images, and the frozen lower part can be cached so it runs on a laptop.
 
 **7. What did you predict, and was it right?**
-Before running the experiment we predicted: AUC +1–2 points, specificity improving the most, and sensitivity within ~1 point. See Table IV in the paper for observed changes and the verdict on each criterion. These are filled by `fill_macros.py` from `results/ablation_all.json`. Only 1–2 seeds were run for the fine-tuned settings, so this result is less certain than the reproduction.
+Before running the experiment we predicted: AUC +1–2 points, specificity improving the most, and sensitivity within ~1 point. **Mostly wrong.** With 2 blocks unfrozen (mean of 2 seeds, compared with the frozen baseline): AUC **−0.27**, specificity **+0.13**, sensitivity **+0.92**, accuracy +0.62 points. Only the sensitivity criterion held, so the hypothesis is **not supported** (Table IV). The reason is the risk we named in advance. Fine-tuned models reach **100% training accuracy** and about 99% validation accuracy, but only about 81% on the test set. Fine-tuning mostly removed missed pneumonia cases (8 → 3, seed 0), while the false positives on NORMAL images stayed at 114. The whole network gets the best AUC (93.9) but the worst specificity (42.3). So ImageNet features were not the bottleneck: the train/test shift and the 3:1 imbalance are. Only 1–2 seeds were run for the fine-tuned settings, so this result is less certain than the reproduction.
 
 **8. What result would have falsified your hypothesis?**
 We wrote three criteria down in advance (milestone3/hypothesis.md):

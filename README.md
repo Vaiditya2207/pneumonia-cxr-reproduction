@@ -16,6 +16,18 @@ Computer Vision course project (research reproduction).
 | M5: IEEE-format paper + defence Q&A | `milestone5/paper.pdf`, `milestone5/defence_qa.md` |
 | Figures and metrics | `results/*.png`, `results/*.json` |
 
+## Results (official test set, 624 images)
+| Model | Seeds | Accuracy | Sensitivity | Specificity | AUC |
+|---|---|---|---|---|---|
+| Paper (Kermany et al.) | – | 92.8 | 93.2 | 90.1 | 96.8 |
+| Our reproduction: frozen InceptionV3 | 5 | 80.1 ± 0.7 | 98.4 ± 0.3 | 49.7 ± 1.9 | 92.9 ± 0.2 |
+| + 1 block fine-tuned | 1 | 82.2 | 99.7 | 53.0 | 92.3 |
+| **+ 2 blocks fine-tuned (our change)** | 2 | 80.9 ± 0.4 | 99.5 ± 0.3 | 49.8 ± 1.5 | 92.6 ± 0.9 |
+| whole network (smaller budget) | 1 | 78.4 | 100.0 | 42.3 | 93.9 |
+
+- **Reproduction:** the AUC is within 4 points of the paper, but specificity is much lower. Almost all errors are NORMAL X-rays called PNEUMONIA. Validation accuracy is about 98.7% but test accuracy is about 80%, which points to a train/test distribution shift.
+- **Hypothesis (pre-registered in `milestone3/hypothesis.md`):** fine-tuning the top 2 blocks would raise AUC by 1–2 points and fix specificity. **Not supported:** AUC −0.27, specificity +0.13. Fine-tuned models reach 100% training accuracy without improving the test set, so the bottleneck is the train/test shift and class imbalance, not the ImageNet features.
+
 ## Run it
 ```bash
 python -m venv .venv && .venv/bin/pip install -r requirements.txt

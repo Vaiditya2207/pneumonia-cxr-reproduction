@@ -93,7 +93,7 @@ text(s, 0.8, 2.2, 11.7, 1.8, "Pneumonia vs Normal on Pediatric Chest X-rays",
      size=44, color=WHITE, bold=True, align=PP_ALIGN.CENTER)
 text(s, 0.8, 4.0, 11.7, 1.2, "Reproducing Kermany et al. (Cell, 2018) + one change",
      size=26, color=RGBColor(0xCF, 0xE3, 0xF2), align=PP_ALIGN.CENTER)
-text(s, 0.8, 5.4, 11.7, 0.8, "Milestones 2–4", size=20, color=RGBColor(0xCF, 0xE3, 0xF2), align=PP_ALIGN.CENTER)
+text(s, 0.8, 5.4, 11.7, 0.8, "Milestones 2–5", size=20, color=RGBColor(0xCF, 0xE3, 0xF2), align=PP_ALIGN.CENTER)
 
 # 2. Introduction
 s = new_slide("Why this problem?")
@@ -180,6 +180,92 @@ text(s, 0.8, 3.9, 11.8, 3.0, [
     "Same data, seed and settings for every run",
     "Limitations: small single-hospital dataset; no clinical claims",
 ], size=24, bullets=True)
+
+# ---------- Milestone 4 & 5 slides (generated from ../results/ablation_all.json) ----------
+import json
+import numpy as np
+ABL = ROOT / "results" / "ablation_all.json"
+if ABL.exists():
+    R = json.load(open(ABL))
+    NAMES = {"0": "0 blocks (baseline)", "1": "1 block", "2": "2 blocks (ours)", "all": "Whole network*"}
+    mean = lambda k, m: float(np.mean([r[m] for r in R[k]]))
+
+    s = new_slide("Milestone 4: ablation results")
+    keys = [k for k in ["0", "1", "2", "all"] if k in R]
+    cols = ["Unfrozen", "Seeds", "Acc", "Sens", "Spec", "AUC", "Train acc"]
+    tbl = s.shapes.add_table(len(keys) + 1, len(cols), Inches(0.5), Inches(1.5), Inches(12.3), Inches(3.2)).table
+    for c, h in enumerate(cols):
+        tbl.cell(0, c).text = h
+    for r, k in enumerate(keys, start=1):
+        vals = [NAMES[k], str(len(R[k]))] + [f"{mean(k, m):.1f}" for m in ["accuracy", "sensitivity", "specificity", "auc", "train_acc"]]
+        for c, v in enumerate(vals):
+            tbl.cell(r, c).text = v
+    for r in range(len(keys) + 1):
+        for c in range(len(cols)):
+            cell = tbl.cell(r, c); cell.vertical_anchor = MSO_ANCHOR.MIDDLE
+            for p in cell.text_frame.paragraphs:
+                p.alignment = PP_ALIGN.CENTER
+                p.font.size, p.font.bold, p.font.name = Pt(20), r == 0 or keys[r - 1] == "2" if r else True, FONT
+                p.font.color.rgb = WHITE if r == 0 else GREY
+            cell.fill.solid()
+            cell.fill.fore_color.rgb = NAVY if r == 0 else (RGBColor(0xFF, 0xE8, 0xC2) if keys[r - 1] == "2" else (LIGHT if r % 2 else WHITE))
+    text(s, 0.5, 5.0, 12.3, 1.8, [
+        "Same data, split, batch 256, 4000 steps; only the unfrozen part changes (blocks lr 1e-4, head lr 1e-3)",
+        "*Whole network: smaller budget (batch 32, 1000 steps, 1 seed) — rough guide only",
+        "Test set: 624 images; mean over seeds; threshold 0.5",
+    ], size=17, bullets=True)
+
+    s = new_slide("Ablation at a glance")
+    s.shapes.add_picture(str(ROOT / "results" / "ablation_bars.png"), Inches(0.5), Inches(1.45), width=Inches(12.3))
+
+    d = {m: mean("2", m) - mean("0", m) for m in ["auc", "specificity", "sensitivity", "accuracy"]}
+    auc_std0 = float(np.std([r["auc"] for r in R["0"]]))
+    checks = [("AUC up ~1–2 points", d["auc"] > max(0.5, 2 * auc_std0), f"{d['auc']:+.1f} pts"),
+              ("Specificity improves the most", d["specificity"] > 0 and d["specificity"] >= max(d["sensitivity"], d["auc"]), f"{d['specificity']:+.1f} pts"),
+              ("Sensitivity within ~1 point", abs(d["sensitivity"]) <= 1.5, f"{d['sensitivity']:+.1f} pts")]
+    s = new_slide("Was our prediction right?")
+    for i, (claim, ok, delta) in enumerate(checks):
+        y = 1.7 + i * 1.35
+        box(s, 0.8, y, 1.9, 1.0, "YES" if ok else "NO", fill=RGBColor(0xD6, 0xF0, 0xEC) if ok else RGBColor(0xF8, 0xD7, 0xDA), size=24)
+        text(s, 3.0, y + 0.18, 6.5, 0.8, claim, size=24)
+        text(s, 9.6, y + 0.18, 3.2, 0.8, delta, size=24, bold=True, color=NAVY)
+    n_ok = sum(ok for _, ok, _ in checks)
+    verdict = "supported" if n_ok == 3 else "partly supported" if checks[0][1] or checks[1][1] else "not supported"
+    text(s, 0.8, 5.9, 11.8, 1.0, f"Hypothesis {verdict}: 2 blocks vs frozen baseline, accuracy {d['accuracy']:+.1f} pts. "
+         "Prediction was written before the experiment.", size=20, color=TEAL, bold=True)
+
+    s = new_slide("Failure analysis")
+    s.shapes.add_picture(str(ROOT / "results" / "failures_finetuned.png"), Inches(0.3), Inches(1.45), width=Inches(12.7))
+    r0, r2 = R["0"][0], R["2"][0]
+    text(s, 0.6, 4.5, 12.2, 2.8, [
+        f"Normal → Pneumonia errors: {r0['fp']} (frozen) vs {r2['fp']} (2 blocks); missed pneumonia: {r0['fn']} vs {r2['fn']}",
+        f"Train acc {mean('2', 'train_acc'):.1f}% / val {mean('2', 'val_acc'):.1f}% vs test {mean('2', 'accuracy'):.1f}% → train/test shift dominates",
+        "3:1 class imbalance + threshold 0.5 bias the model toward 'pneumonia'",
+    ], size=19, bullets=True)
+
+    s = new_slide("Limitations & next steps")
+    text(s, 0.6, 1.6, 6.0, 0.6, "Limitations", size=26, color=TEAL, bold=True)
+    text(s, 0.6, 2.3, 6.0, 4.6, [
+        "One hospital, one fixed 624-image test set",
+        "Few seeds for fine-tuned runs",
+        "Whole-network row uses a smaller budget",
+        "Research exercise only — no clinical claims",
+    ], size=21, bullets=True)
+    text(s, 6.9, 1.6, 6.0, 0.6, "Next steps", size=26, color=TEAL, bold=True)
+    text(s, 6.9, 2.3, 6.0, 4.6, [
+        "Class-weighted loss for the 3:1 imbalance",
+        "Choose threshold on validation, not 0.5",
+        "Data augmentation against train/test shift",
+        "External test set (another hospital)",
+    ], size=21, bullets=True)
+
+    s = new_slide("Conclusion")
+    text(s, 0.8, 1.7, 11.8, 5.0, [
+        f"Reproduced Kermany et al.: AUC {AUC} vs 96.8% (paper); low specificity ({SPEC}) is the main gap",
+        f"One change (fine-tune top 2 blocks): AUC {mean('2', 'auc'):.1f}%, specificity {mean('2', 'specificity'):.1f}%, accuracy {mean('2', 'accuracy'):.1f}%",
+        f"Hypothesis {verdict} against criteria fixed in advance",
+        "Code, results and paper: github.com/Vaiditya2207/pneumonia-cxr-reproduction",
+    ], size=24, bullets=True)
 
 prs.save(OUT)
 print(f"saved {OUT}")

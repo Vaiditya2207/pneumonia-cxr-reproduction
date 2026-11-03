@@ -93,7 +93,8 @@ text(s, 0.8, 2.2, 11.7, 1.8, "Pneumonia vs Normal on Pediatric Chest X-rays",
      size=44, color=WHITE, bold=True, align=PP_ALIGN.CENTER)
 text(s, 0.8, 4.0, 11.7, 1.2, "Reproducing Kermany et al. (Cell, 2018) + one change",
      size=26, color=RGBColor(0xCF, 0xE3, 0xF2), align=PP_ALIGN.CENTER)
-text(s, 0.8, 5.4, 11.7, 0.8, "Milestones 2–5", size=20, color=RGBColor(0xCF, 0xE3, 0xF2), align=PP_ALIGN.CENTER)
+text(s, 0.8, 4.9, 11.7, 0.6, "Vaiditya Tanwar · Yashi Gupta", size=24, color=WHITE, bold=True, align=PP_ALIGN.CENTER)
+text(s, 0.8, 5.6, 11.7, 0.8, "Milestones 2–5", size=20, color=RGBColor(0xCF, 0xE3, 0xF2), align=PP_ALIGN.CENTER)
 
 # 2. Introduction
 s = new_slide("Why this problem?")

@@ -1,6 +1,6 @@
 # Pneumonia vs Normal on Pediatric Chest X-rays: Reproduction + One Change
 
-Computer Vision course project (research reproduction).
+Computer Vision course project (research reproduction) by **Vaiditya Tanwar** and **Yashi Gupta**.
 
 - **Base paper:** D. S. Kermany *et al.*, "Identifying Medical Diagnoses and Treatable Diseases by Image-Based Deep Learning", *Cell* 172(5), 2018. doi:[10.1016/j.cell.2018.02.010](https://doi.org/10.1016/j.cell.2018.02.010)
 - **Dataset + original code:** [Mendeley Data rscbjbr9sj v2](https://data.mendeley.com/datasets/rscbjbr9sj/2) (`ChestXRay2017.zip`, `code2017.zip`)

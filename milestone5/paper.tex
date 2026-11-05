@@ -71,7 +71,7 @@
 
 \begin{document}
 
-\title{Reproducing Frozen-InceptionV3 Pneumonia Detection on Pediatric Chest X-Rays, and Fine-Tuning Its Top Blocks}
+\title{Reproducing a Pneumonia Detector for Children's Chest X-Rays, and Testing One Change}
 
 \author{\IEEEauthorblockN{Vaiditya Tanwar and Yashi Gupta}
 \IEEEauthorblockA{Computer Vision Course Project (Milestone 5)}}
@@ -79,192 +79,159 @@
 \maketitle
 
 \begin{abstract}
-We reproduce the chest X-ray experiment of Kermany \emph{et al.} (Cell, 2018), in which a frozen ImageNet InceptionV3 network is used as a feature extractor and only a new linear softmax layer is trained to classify pediatric chest X-rays as NORMAL or PNEUMONIA. On the official public split (5\,232 training, 624 test images) and over five random seeds, our PyTorch reproduction reaches an accuracy of \RepAcc\%, sensitivity \RepSens\%, specificity \RepSpec\% and ROC-AUC \RepAUC\%, against 92.8\% accuracy and 96.8\% AUC reported by the authors. The gap is almost entirely false positives on NORMAL images, and validation accuracy on held-out training images (98.7\%) is far above test accuracy, pointing to a train/test distribution shift and an unsuitable 0.5 decision threshold. We then test one change: fine-tuning the last two Inception blocks (Mixed\_7b, Mixed\_7c) at a small learning rate. Two blocks unfrozen gives AUC \AblTwoAUC\% versus \AblZeroAUC\% for the frozen model ($\Delta$AUC $=$ \DAUC, $\Delta$specificity $=$ \DSpec\ points), so our pre-registered hypothesis is not supported: the fine-tuned models reach 100\% training accuracy, and the remaining errors are still false positives caused by train/test shift and class imbalance. This is a student reproduction study and makes no clinical claims.
+We reproduce a well-known result by Kermany \emph{et al.} (Cell, 2018): an ImageNet-pretrained InceptionV3 network, kept frozen, with one new layer trained to label children's chest X-rays as NORMAL or PNEUMONIA. Over five runs our reproduction reaches \RepAcc\% accuracy and \RepAUC\% AUC, against 92.8\% and 96.8\% in the paper. Almost all of our errors are healthy X-rays labelled as pneumonia. We then test one change: also training the last two blocks of the network. This does not help (AUC \DAUC\ points, specificity \DSpec\ points), so our hypothesis is not supported. The evidence points to a difference between the training and test images, not to weak ImageNet features. This is a student study and makes no clinical claims.
 \end{abstract}
 
 \begin{IEEEkeywords}
-chest X-ray, pneumonia, transfer learning, InceptionV3, reproducibility, fine-tuning
+chest X-ray, pneumonia, transfer learning, InceptionV3, reproducibility
 \end{IEEEkeywords}
 
 % ===========================================================================
 \section{Introduction}
-Pneumonia is an acute infection of the lungs and remains the single largest infectious cause of death in children worldwide. According to the World Health Organization, it killed 740\,180 children under the age of five in 2019, accounting for 14\% of all deaths in that age group~\cite{who}. Most of these deaths are preventable or treatable when the disease is identified early, so fast and reliable diagnosis matters.
+Pneumonia is the largest infectious cause of death in young children. It killed about 740\,000 children under five in 2019~\cite{who}. A chest X-ray is the usual way to confirm it, but reading one well takes a trained radiologist, and they are scarce where pneumonia is most common~\cite{chexnet}. This motivates tools that can help (not replace) doctors.
 
-The chest X-ray (CXR) is the most common imaging test used to confirm pneumonia, but it is not easy to read. Signs such as patchy opacities or consolidation can be subtle, can overlap with other conditions, and look different in small children than in adults. Reading CXRs well requires trained radiologists, and these specialists are scarce in many of the low-resource settings where the pneumonia burden is highest~\cite{chexnet}. This motivates research into automated tools that could support (not replace) clinical readers.
+Medical datasets are small, so most such tools use \emph{transfer learning}: start from a network trained on millions of everyday photos (ImageNet~\cite{imagenet}) and reuse it for X-rays. Kermany \emph{et al.}~\cite{kermany} did exactly this. They kept an ImageNet InceptionV3~\cite{inception} completely frozen and trained only a new final layer. Their dataset is public~\cite{mendeley}, which makes the work easy to reproduce.
 
-Deep convolutional neural networks (CNNs) have shown strong results on medical images. CheXNet, a 121-layer CNN trained on more than 100\,000 chest X-rays, was reported to detect pneumonia at a level comparable to practising radiologists on a held-out test set~\cite{chexnet}. Because labelled medical datasets are usually small, most such systems rely on \emph{transfer learning}: a network is first trained on a large natural-image dataset (ImageNet) and then reused for the medical task. Yosinski \emph{et al.} showed that early CNN layers learn general features (edges, textures) while later layers become specific to the original task, so how much of a network to re-train is an important choice~\cite{yosinski}. Raghu \emph{et al.} further found that for medical images, which differ strongly from natural photos, the benefit of ImageNet features is smaller than often assumed and is concentrated in the lowest layers~\cite{raghu}.
+\textbf{What we do.} (1) We reproduce their method on the same data. (2) We explain where our numbers differ and why. (3) We test one change: also training the top two blocks of the network.
 
-Our base paper is Kermany \emph{et al.} (Cell, 2018)~\cite{kermany}. The authors built a transfer-learning system for retinal OCT scans and then showed it also generalises to classifying pediatric chest X-rays as normal or pneumonia. Their method uses an ImageNet-pretrained InceptionV3 network that is kept completely frozen as a feature extractor; only a new final linear classification layer is trained. They released the dataset (about 5\,200 training and 624 test images) publicly~\cite{mendeley}, which makes the work well suited for reproduction.
-
-\textbf{Our contribution.} We (i) reproduce the frozen-InceptionV3 baseline on the same public dataset and report accuracy, sensitivity, specificity, precision and ROC-AUC over five seeds, (ii) analyse where and why the reproduction falls short of the published numbers, and (iii) test one targeted change, fine-tuning only the last two Inception blocks together with the classifier, with a small ablation over how much of the network is unfrozen.
-
-% ===========================================================================
-\section{Related Work}
-\textbf{Transfer learning for CXR.} Kermany \emph{et al.}~\cite{kermany} use a frozen InceptionV3~\cite{inception} pretrained on ImageNet~\cite{imagenet}. CheXNet~\cite{chexnet} instead fine-tunes an entire DenseNet-121 on the much larger ChestX-ray14 dataset~\cite{chestxray8}. Our change sits between these two extremes.
-
-\textbf{Which layers to adapt.} Yosinski \emph{et al.}~\cite{yosinski} show that transferability falls with depth, which suggests adapting the top layers first. Raghu \emph{et al.}~\cite{raghu} show that on medical images the top of large ImageNet models changes the most during fine-tuning and that pretrained features help less than expected.
-
-\textbf{Generalisation of pneumonia detectors.} Zech \emph{et al.}~\cite{zech} found that CNN pneumonia detectors performed noticeably worse on X-rays from hospitals not seen in training, and that models can exploit site-specific cues. This is relevant to the train/test shift we observe in Section~\ref{sec:fail}.
+\textbf{Related work.} CheXNet~\cite{chexnet} sits at the other extreme: it trains a whole DenseNet-121 on a much larger dataset~\cite{chestxray8}. Our change sits in between. Yosinski \emph{et al.}~\cite{yosinski} showed that the top layers of a network are the most specific to the original task, so they are the natural ones to retrain. Raghu \emph{et al.}~\cite{raghu} found that ImageNet features help less than expected on medical images. Zech \emph{et al.}~\cite{zech} showed that pneumonia models often do worse on X-rays from a different hospital, which matches what we see.
 
 % ===========================================================================
 \section{Method}
-\subsection{Baseline (reproduced)}
-Each X-ray is resized directly to $299\times299$, converted to three identical channels and normalised with ImageNet statistics. The ImageNet-pretrained InceptionV3 from torchvision, with its final layer removed, maps each image to a 2048-dimensional pooled feature vector. All of its weights are frozen, so features are computed once and cached, as in the authors' code. A new linear layer ($2048\to2$, weights $\sim\mathcal{N}(0,0.001^2)$, softmax, cross-entropy) is trained with Adam~\cite{adam} (learning rate $10^{-3}$, batch 256 sampled at random, 4\,000 steps), matching the authors' settings.
+\textbf{Baseline (the paper's method).} Each X-ray is resized to $299\times299$ pixels. The frozen InceptionV3 turns it into a list of 2048 numbers (features). A new linear layer maps these features to the two classes. Only this layer is trained, with the authors' settings: Adam~\cite{adam}, learning rate $10^{-3}$, batch 256, 4\,000 steps. Because the network is frozen, features are computed once and reused, so training takes seconds.
 
-\subsection{Our change: fine-tune the top two Inception blocks}
-ImageNet features come from colour photographs of objects; chest X-rays are grayscale and their diagnostic cues (opacities, consolidation) look nothing like ImageNet classes. Following~\cite{yosinski,raghu}, the highest blocks are the most task-specific, so we unfreeze only the last two Inception blocks, Mixed\_7b and Mixed\_7c, initialised from the ImageNet weights and trained at a smaller learning rate ($10^{-4}$) so they adapt without forgetting. The head keeps learning rate $10^{-3}$. Everything else (data, split, preprocessing, optimiser, batch size, steps) is unchanged. Because the lower 16 stages stay frozen, their output ($8\times8\times1280$) is cached once and only the top of the network is run during training. Table~\ref{tab:trainable} summarises what is trained in each configuration.
+\textbf{Our change.} X-rays look nothing like ImageNet photos. We guessed that the top of the network, the most task-specific part~\cite{yosinski}, needs to adapt. So we also train the last two blocks (Mixed\_7b and Mixed\_7c) at a smaller learning rate ($10^{-4}$), so they adjust without forgetting what they learned. Everything else stays the same. To see the trend, we also try one block and the whole network (Table~\ref{tab:trainable}).
 
 \begin{table}[t]
 \centering
-\caption{What is trainable in each configuration. Everything below the trainable part is frozen and cached. Learning rate: head $10^{-3}$, unfrozen blocks $10^{-4}$. $^*$Smaller budget: batch 32, 1\,000 steps, 1 seed.}
+\caption{What is trained in each setting. The rest of the network stays frozen.}
 \label{tab:trainable}
 \begin{tabular}{@{}llr@{}}
 \toprule
-Configuration & Trainable part & Params \\
+Setting & Trained part & Parameters \\
 \midrule
-0 blocks (paper) & linear head only & 4.1K \\
-1 block & Mixed\_7c + head & 6.08M \\
-2 blocks (ours) & Mixed\_7b, Mixed\_7c + head & 11.13M \\
-Whole network$^*$ & all layers + head & 21.79M \\
+0 blocks (paper) & final layer only & 4.1K \\
+1 block & Mixed\_7c + final layer & 6.1M \\
+2 blocks (ours) & Mixed\_7b--7c + final layer & 11.1M \\
+Whole network$^*$ & everything & 21.8M \\
 \bottomrule
-\end{tabular}
+\end{tabular}\\[2pt]
+\footnotesize{$^*$Smaller budget (batch 32, 1\,000 steps, 1 run) because it is slow.}
 \end{table}
 
 % ===========================================================================
 \section{Experimental Setup}
-\textbf{Data.} We use the Kermany chest X-ray dataset (Mendeley Data, \texttt{rscbjbr9sj}, v2)~\cite{mendeley}: pediatric anterior-posterior CXRs from Guangzhou Women and Children's Medical Center. We keep the official split unchanged: training 1\,349 NORMAL / 3\,883 PNEUMONIA (5\,232), test 234 NORMAL / 390 PNEUMONIA (624). The training set is imbalanced roughly 1:3. For model monitoring we hold out a random 10\% of the training set as validation (seed-dependent); the test set is never used for any choice.
+\textbf{Data.} We use the official split of the Kermany dataset~\cite{mendeley}, from one children's hospital in Guangzhou. Training: 1\,349 NORMAL and 3\,883 PNEUMONIA images (about 1:3). Test: 234 NORMAL and 390 PNEUMONIA images. We set aside 10\% of the training images for validation. The test set is used only for the final numbers.
 
-\textbf{Metrics.} With PNEUMONIA as the positive class and a 0.5 threshold on $P(\text{pneumonia})$: accuracy, sensitivity (recall, $\frac{TP}{TP+FN}$), specificity ($\frac{TN}{TN+FP}$), precision ($\frac{TP}{TP+FP}$), and threshold-free ROC-AUC. All are reported in percent.
+\textbf{Metrics.} PNEUMONIA is the positive class and the decision threshold is 0.5. \emph{Sensitivity} is the share of pneumonia cases caught. \emph{Specificity} is the share of healthy X-rays correctly called NORMAL. \emph{AUC} measures ranking quality and does not depend on the threshold. All values are percentages.
 
-\textbf{Seeds.} The reproduction uses 5 seeds (0--4) and reports mean $\pm$ standard deviation. In the ablation, the frozen model uses 5 seeds, 2 blocks uses \AblTwoSeeds\ seeds, 1 block and the whole network one seed each, because fine-tuning runs take minutes instead of seconds.
-
-\textbf{Implementation.} PyTorch 2.15 and torchvision 0.29 with the \texttt{IMAGENET1K\_V1} InceptionV3 weights~\cite{pytorch}, on an Apple M5 Pro laptop GPU (MPS backend). Code is in two notebooks: \texttt{pneumonia\_baseline\_reproduction.ipynb} and \texttt{pneumonia\_milestone4\_finetune.ipynb}.
+\textbf{Runs and tools.} The baseline is run with 5 random seeds (mean $\pm$ std). Fine-tuning is slower, so 2 blocks uses \AblTwoSeeds\ seeds and the other settings use 1. We use PyTorch~\cite{pytorch} with torchvision's InceptionV3 weights on an Apple M5 Pro laptop.
 
 % ===========================================================================
 \section{Results}
-\subsection{Reproduction of the baseline}
-Table~\ref{tab:repro} compares our reproduction with the paper. Sensitivity is higher than reported, but specificity is about 40 points lower, which pulls accuracy down by about 13 points. AUC, which does not depend on the threshold, is 3.9 points lower. Variation across seeds is small ($\le$2 points), so the gap is not run-to-run noise.
+\subsection{Reproduction}
+Table~\ref{tab:repro} compares our numbers with the paper. We catch more pneumonia cases than the paper (higher sensitivity), but we wrongly flag about half of the healthy X-rays (specificity \RepSpec\% vs.\ 90.1\%). AUC is 3.9 points lower. The five runs agree closely, so this gap is not random noise.
 
 \begin{table}[t]
 \centering
-\caption{Paper vs.\ our reproduction of the frozen baseline (test set, \%). Ours: mean$\pm$std over 5 seeds.}
+\caption{The paper vs.\ our reproduction of the baseline (test set, \%).}
 \label{tab:repro}
 \begin{tabular}{@{}lcc@{}}
 \toprule
-Metric & Kermany \emph{et al.}~\cite{kermany}\textsuperscript{\dag} & Ours \\
+Metric & Paper~\cite{kermany}\textsuperscript{\dag} & Ours (5 runs) \\
 \midrule
 Accuracy & 92.8 & \RepAcc \\
 Sensitivity & 93.2 & \RepSens \\
 Specificity & 90.1 & \RepSpec \\
-Precision & -- & \RepPrec \\
-ROC-AUC & 96.8 & \RepAUC \\
+AUC & 96.8 & \RepAUC \\
 \bottomrule
 \end{tabular}\\[2pt]
-\footnotesize{\textsuperscript{\dag}Only the 92.8\% accuracy could be confirmed from secondary sources; the other three values are as quoted in our project brief and could not be checked against the original text.}
+\footnotesize{\textsuperscript{\dag}We could confirm only the 92.8\% accuracy from other sources; the other three are as given in our project brief.}
 \end{table}
+
+\begin{table*}[t]
+\centering
+\caption{Training more of the network (test set, \%, mean $\pm$ std when there is more than one run).}
+\label{tab:ablation}
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+Trained & Accuracy & Sensitivity & Specificity & AUC & Train acc. \\
+\midrule
+0 blocks & \AblZeroAcc & \AblZeroSens & \AblZeroSpec & \AblZeroAUC & \AblZeroTrain \\
+1 block & \AblOneAcc & \AblOneSens & \AblOneSpec & \AblOneAUC & \AblOneTrain \\
+2 blocks (ours) & \AblTwoAcc & \AblTwoSens & \AblTwoSpec & \AblTwoAUC & \AblTwoTrain \\
+Whole$^*$ & \AblAllAcc & \AblAllSens & \AblAllSpec & \AblAllAUC & \AblAllTrain \\
+\bottomrule
+\end{tabular}\\[2pt]
+\footnotesize{$^*$Smaller budget; not directly comparable.}
+\end{table*}
 
 \begin{figure}[t]
 \centering
 \includegraphics[width=\columnwidth]{confusion_roc.png}
-\caption{Frozen baseline, seed 0: confusion matrix on the 624 test images and ROC curve.}
+\caption{Baseline (seed 0): confusion matrix on the 624 test images, and ROC curve.}
 \label{fig:cm}
 \end{figure}
 
-\subsection{Ablation: how much of the network to fine-tune}
-Table~\ref{tab:ablation} and Fig.~\ref{fig:ablation} report the ablation. All rows share the same data, preprocessing and evaluation; the 0-block row is re-run inside the Milestone 4 pipeline (cached in float16), so it can differ slightly from Table~\ref{tab:repro}. ``Train'' is accuracy on the 90\% training portion.
+\subsection{How much of the network to train}
+Table~\ref{tab:ablation} and Fig.~\ref{fig:ablation} show the results. The 0-block row is re-run in the same code as the other rows, so it differs slightly from Table~\ref{tab:repro}. ``Train'' is accuracy on the training images.
 
-\begin{table*}[t]
-\centering
-\caption{Ablation over the number of unfrozen Inception blocks (test set, \%, mean$\pm$std where more than one seed).}
-\label{tab:ablation}
-\begin{tabular}{@{}lcccccccc@{}}
-\toprule
-Unfrozen & Seeds & Accuracy & Sensitivity & Specificity & Precision & ROC-AUC & Train acc. & Val. acc. \\
-\midrule
-0 blocks (paper method) & \AblZeroSeeds & \AblZeroAcc & \AblZeroSens & \AblZeroSpec & \AblZeroPrec & \AblZeroAUC & \AblZeroTrain & \AblZeroVal \\
-1 block (Mixed\_7c) & \AblOneSeeds & \AblOneAcc & \AblOneSens & \AblOneSpec & \AblOnePrec & \AblOneAUC & \AblOneTrain & \AblOneVal \\
-2 blocks (ours) & \AblTwoSeeds & \AblTwoAcc & \AblTwoSens & \AblTwoSpec & \AblTwoPrec & \AblTwoAUC & \AblTwoTrain & \AblTwoVal \\
-Whole network$^*$ & \AblAllSeeds & \AblAllAcc & \AblAllSens & \AblAllSpec & \AblAllPrec & \AblAllAUC & \AblAllTrain & \AblAllVal \\
-\bottomrule
-\end{tabular}\\[2pt]
-\footnotesize{$^*$Smaller training budget (batch 32, 1\,000 steps); not directly comparable to the other rows.}
-\end{table*}
 
-\IfFileExists{../results/ablation_bars.png}{%
-\begin{figure*}[t]
+\begin{figure}[t]
 \centering
-\includegraphics[width=0.8\textwidth]{ablation_bars.png}
-\caption{Test metrics per ablation setting (mean $\pm$ std over seeds). Unfreezing more layers pushes sensitivity to $\approx$100\%, but specificity stays far below the paper's 90.1\% (dotted line). $^*$Whole network: smaller budget, 1 seed.}
+\includegraphics[width=\columnwidth]{ablation_bars.png}
+\caption{Test metrics for each setting. Training more layers pushes sensitivity to almost 100\%, but specificity stays far below the paper's 90.1\% (dotted line).}
 \label{fig:ablation}
-\end{figure*}}{}
+\end{figure}
 
 % ===========================================================================
-\section{Failure Analysis}
+\section{Why the Model Fails}
 \label{sec:fail}
-\textbf{Errors are false positives on NORMAL images.} For the frozen baseline (seed 0), 119 of the 127 test errors are NORMAL images predicted as PNEUMONIA; only 8 pneumonia cases are missed (Fig.~\ref{fig:cm}). With 2 blocks fine-tuned, seed 0 makes \FPTwo\ false positives and \FNTwo\ false negatives (baseline in the same pipeline: \FPZero\ and \FNZero). Fig.~\ref{fig:fails} shows the fine-tuned model's most confident mistakes.
+\textbf{Mistakes are healthy X-rays called pneumonia.} In the baseline (seed 0), 119 of 127 errors are of this kind; only 8 pneumonia cases are missed (Fig.~\ref{fig:cm}). Training two blocks barely changes this: \FPTwo\ such errors, against \FPZero\ for the baseline in the same code. Fig.~\ref{fig:fails} shows examples.
 
-\textbf{Train/test distribution shift.} On held-out training images the frozen model reaches 98.66\% validation accuracy, but only 79.65\% on the test set (seed 0). Validation and training images come from the same pool, while the official test set was collected and labelled separately. A model that is near-perfect on one and 19 points worse on the other is learning cues that do not carry over; this is the kind of shift Zech \emph{et al.}~\cite{zech} warn about.
+\textbf{Training and test images differ.} The baseline scores 98.7\% on validation images but only 79.7\% on the test set. Validation images come from the training pool; the test set was collected separately. So the model learns cues that do not carry over to the test images, the problem Zech \emph{et al.}~\cite{zech} describe.
 
-\textbf{Threshold.} At 0.5 the model is strongly biased towards PNEUMONIA. Moving along the same ROC curve to the paper's operating sensitivity (93.6\%, threshold 0.945) gives a specificity of 70.9\% instead of 49.7\%. The paper does not state its threshold or how the final checkpoint was chosen, so part of the gap may be an operating-point choice rather than a weaker model; the remaining AUC gap (92.9 vs.\ 96.8) is not explained by the threshold.
+\textbf{Threshold and class balance.} There are three pneumonia images for every normal one, so the model leans towards saying PNEUMONIA. Raising the threshold to match the paper's sensitivity lifts specificity from 49.7\% to 70.9\%. The paper does not state its threshold, so part of the gap may come from that choice. The AUC gap is not explained by the threshold.
 
-\textbf{Class imbalance.} With about three pneumonia images per normal one and no class weighting, the cross-entropy loss is dominated by pneumonia examples, which pushes predicted probabilities upwards and makes false positives the cheap error during training.
+\textbf{Small implementation differences.} We use torchvision's weights instead of the original TensorFlow model, a different resizing library and our own validation split. Each can move the results by a few points.
 
-\textbf{Other implementation differences.} We use torchvision's InceptionV3 weights rather than the 2015 TensorFlow graph, PIL bilinear resizing rather than TensorFlow's, and our own random validation split. Any of these can move features and therefore results by a few points.
-
-\IfFileExists{../results/failures_finetuned.png}{%
 \begin{figure}[t]
 \centering
 \includegraphics[width=\columnwidth]{failures_finetuned.png}
-\caption{Most confident test mistakes of the 2-block fine-tuned model (seed 0), with $P(\text{pneumonia})$.}
+\caption{The most confident mistakes of the 2-block model (seed 0), with its predicted chance of pneumonia.}
 \label{fig:fails}
-\end{figure}}{%
-\begin{figure}[t]
-\centering
-\includegraphics[width=\columnwidth]{failures.png}
-\caption{Misclassified test images of the frozen baseline (seed 0). [Fine-tuned failures figure pending.]}
-\label{fig:fails}
-\end{figure}}
+\end{figure}
 
 % ===========================================================================
-\section{Hypothesis Outcome}
-Before running Milestone 4 we predicted (Milestone 3) that unfreezing Mixed\_7b and Mixed\_7c would (a) raise AUC by about 1--2 points, (b) improve specificity more than any other metric, and (c) keep sensitivity within about 1 point. We also stated that the hypothesis is falsified if the AUC gain is $\le$0 or within seed noise, if AUC rises without a specificity gain, or if training accuracy rises while test performance falls.
+\section{Was Our Hypothesis Right?}
+Before the experiment (Milestone 3) we predicted that training the top two blocks would (a) raise AUC by 1--2 points, (b) improve specificity the most, and (c) keep sensitivity within about 1 point. Table~\ref{tab:outcome} compares these predictions with what happened.
 
 \begin{table}[t]
 \centering
-\caption{Pre-registered predictions vs.\ outcome (2 blocks minus frozen, mean over seeds, percentage points).}
+\caption{Our predictions vs.\ the outcome (2 blocks minus baseline, percentage points, mean over seeds).}
 \label{tab:outcome}
 \begin{tabular}{@{}llc@{}}
 \toprule
 Prediction & Observed & Verdict \\
 \midrule
-AUC $+$1--2 & \DAUC & \VerdictAUC \\
+AUC $+$1 to $+$2 & \DAUC & \VerdictAUC \\
 Specificity improves most & \DSpec & \VerdictSpec \\
 Sensitivity within $\sim$1 & \DSens & \VerdictSens \\
-\midrule
-Accuracy (not predicted) & \DAcc & -- \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\OutcomeSummary\ An AUC gain counts as real only if it exceeds both 0.5 points and twice the across-seed standard deviation of the baseline AUC. Table~\ref{tab:ablation} also lets us check the overfitting criterion directly: training accuracy of the fine-tuned models (\AblTwoTrain\% for 2 blocks) should be compared with their test accuracy (\AblTwoAcc\%). Because only \AblTwoSeeds\ seeds were run for 2 blocks, this conclusion is weaker than the reproduction result.
-
-\textbf{Why the prediction failed.} The risk we named in advance is what happened. Every fine-tuned model fits the training distribution almost perfectly (\AblTwoTrain\% training and \AblTwoVal\% validation accuracy for 2 blocks) but still reaches only \AblTwoAcc\% on the test set. The extra capacity is spent on the training hospital's images, not on the cue that separates the test set's NORMAL images. Fine-tuning mostly removed missed pneumonia cases (seed 0: \FNZero$\to$\FNTwo\ false negatives) while the false positives on NORMAL images did not change (\FPZero$\to$\FPTwo). Unfreezing the whole network gives the highest AUC (\AblAllAUC\%) but the lowest specificity (\AblAllSpec\%): adapting more layers moves the model further towards predicting PNEUMONIA. Our reasoning that ImageNet features were the bottleneck was therefore wrong for this dataset. The evidence points to the train/test shift, the class imbalance and the decision threshold (Section~\ref{sec:fail}), which no amount of fine-tuning on the training set fixes.
+Only the sensitivity prediction held, so the hypothesis is \textbf{not supported}. The reason is the risk we named in advance. The fine-tuned models get \AblTwoTrain\% right on training images but only \AblTwoAcc\% on the test set. The extra capacity was spent fitting the training images. It removed a few missed pneumonia cases (\FNZero$\to$\FNTwo) but not the false alarms on healthy X-rays (\FPZero$\to$\FPTwo). Training the whole network gives the best AUC (\AblAllAUC\%) but the worst specificity (\AblAllSpec\%). So ImageNet features were not the bottleneck. The train/test difference, the class imbalance and the threshold are. With only \AblTwoSeeds\ runs for the 2-block setting, this conclusion is less certain than the reproduction.
 
 % ===========================================================================
 \section{Limitations}
-\begin{itemize}
-\item One dataset from one hospital and a single fixed test set of 624 images; no external validation.
-\item Few seeds for the fine-tuned configurations (1--2), and the whole-network row uses a smaller training budget.
-\item We could not fully verify the paper's reported sensitivity, specificity and AUC, nor its threshold and checkpoint selection.
-\item A fixed 0.5 threshold is used for all models; no calibration or class weighting.
-\item No data augmentation was used, to stay faithful to the baseline.
-\item This is a course reproduction study. The models are not validated for, and must not be used in, any clinical setting.
-\end{itemize}
+We use one dataset from one hospital and one 624-image test set. The fine-tuned settings have only 1--2 runs. We could not check all of the paper's numbers or its threshold. We use a fixed 0.5 threshold, no class weighting and no data augmentation. This is a course project: the models must not be used for diagnosis.
 
 % ===========================================================================
 \section{Conclusion}
-We reproduced the frozen-InceptionV3 pneumonia classifier of Kermany \emph{et al.} and obtained a high sensitivity but a much lower specificity and a 3.9-point lower AUC than reported. The shortfall is concentrated in false positives on NORMAL images and is linked to a train/test distribution shift, class imbalance and the default threshold. Fine-tuning the top two Inception blocks changed AUC by \DAUC\ points and specificity by \DSpec\ points, and our pre-registered hypothesis is \VerdictOverall. Natural next steps are class-weighted loss, choosing the threshold on validation data, X-ray-appropriate augmentation, more seeds, and testing on an external dataset.
+We reproduced the frozen-InceptionV3 pneumonia classifier of Kermany \emph{et al.}~\cite{kermany}. It catches almost every pneumonia case, but it wrongly flags about half of the healthy X-rays, and its AUC is 3.9 points below the paper's. Training the top two blocks did not fix this, so our hypothesis is not supported. Better next steps are class weighting, choosing the threshold on validation data, X-ray-specific augmentation, more runs, and testing on X-rays from another hospital.
 
+% ===========================================================================
 % ===========================================================================
 \begin{thebibliography}{99}
 \bibitem{who} World Health Organization, ``Pneumonia in children,'' Fact sheet, Nov.~11, 2022. [Online]. Available: \url{https://www.who.int/news-room/fact-sheets/detail/pneumonia}

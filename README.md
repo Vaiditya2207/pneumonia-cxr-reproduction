@@ -37,4 +37,11 @@ python -m venv .venv && .venv/bin/pip install -r requirements.txt
 ```
 Works on CUDA, Apple-silicon GPU (MPS) or CPU. The baseline takes about 2 minutes on an Apple M5 Pro; Milestone 4 takes about 50 minutes.
 
+## Demo
+A small Gradio app: upload a chest X-ray to get NORMAL / PNEUMONIA with a heatmap of where the model looked. There is also a tab with the results table and charts.
+```bash
+.venv/bin/python demo/app.py          # opens http://127.0.0.1:7860
+```
+`demo/head.pt` is the trained baseline layer (seed 0). To retrain it, run `.venv/bin/python demo/train_model.py`; it needs `data/` or the cached features from the M2 notebook. `demo/examples/` has five test X-rays, including a NORMAL one the model gets wrong.
+
 *Research exercise only; no clinical claims.*
